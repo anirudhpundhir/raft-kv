@@ -161,14 +161,15 @@ fn drive(
             }
         }
         for a in node.take_applied() {
-            if let (Command::Client { client, seq, .. }, Some(resp)) = (a.command, a.response) {
-                if let Some((reply, _)) = pending.remove(&(client, seq)) {
-                    let _ = reply.send(match resp {
-                        Response::Ok => "OK".into(),
-                        Response::Value(Some(v)) => format!("VALUE {v}"),
-                        Response::Value(None) => "NIL".into(),
-                    });
-                }
+            let (Command::Client { client, seq, .. }, Some(resp)) = (a.command, a.response) else {
+                continue;
+            };
+            if let Some((reply, _)) = pending.remove(&(client, seq)) {
+                let _ = reply.send(match resp {
+                    Response::Ok => "OK".into(),
+                    Response::Value(Some(v)) => format!("VALUE {v}"),
+                    Response::Value(None) => "NIL".into(),
+                });
             }
         }
     }

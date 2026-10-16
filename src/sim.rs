@@ -398,17 +398,18 @@ impl Sim {
                     self.committed.insert(a.index, (a.term, a.command.clone()));
                 }
             }
-            if let (Command::Client { client, seq, .. }, Some(resp)) = (&a.command, a.response) {
-                if self.waiting.get_mut(&id).unwrap().remove(&(*client, *seq)) {
-                    self.send(
-                        Addr::Node(id),
-                        Addr::Client(*client),
-                        Payload::Response {
-                            seq: *seq,
-                            result: Ok(resp),
-                        },
-                    );
-                }
+            let (Command::Client { client, seq, .. }, Some(resp)) = (&a.command, a.response) else {
+                continue;
+            };
+            if self.waiting.get_mut(&id).unwrap().remove(&(*client, *seq)) {
+                self.send(
+                    Addr::Node(id),
+                    Addr::Client(*client),
+                    Payload::Response {
+                        seq: *seq,
+                        result: Ok(resp),
+                    },
+                );
             }
         }
     }
