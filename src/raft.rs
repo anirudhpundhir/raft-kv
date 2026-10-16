@@ -87,6 +87,10 @@ pub struct Node<S: Storage> {
     votes: BTreeSet<NodeId>,
     next_index: BTreeMap<NodeId, Index>,
     match_index: BTreeMap<NodeId, Index>,
+    /// Peers with an unacknowledged AppendEntries carrying entries. New
+    /// proposals are batched behind it instead of resending the same suffix
+    /// once per proposal; heartbeats still retransmit in case it was lost.
+    inflight: BTreeSet<NodeId>,
     /// Peers heard from since the last check-quorum round (leader only).
     recent_active: BTreeSet<NodeId>,
 
@@ -126,6 +130,7 @@ impl<S: Storage> Node<S> {
             next_index: BTreeMap::new(),
             match_index: BTreeMap::new(),
             recent_active: BTreeSet::new(),
+            inflight: BTreeSet::new(),
             outbox: Vec::new(),
             applied_out: Vec::new(),
             cfg,
@@ -271,6 +276,7 @@ impl<S: Storage> Node<S> {
         self.heartbeat_elapsed = 0;
         self.election_elapsed = 0;
         self.recent_active.clear();
+        self.inflight.clear();
         let next = self.last_index() + 1;
         let peers: Vec<_> = self.peers().collect();
         self.next_index = peers.iter().map(|p| (*p, next)).collect();
@@ -323,19 +329,33 @@ impl<S: Storage> Node<S> {
     /// Proposes a client operation. Returns the log index it was appended at.
     /// The response is reported through [`Node::take_applied`] once committed.
     pub fn propose(&mut self, client: ClientId, seq: u64, op: Op) -> Result<Index, ProposeError> {
+        self.propose_batch(vec![(client, seq, op)])
+    }
+
+    /// Proposes several operations with a single durable append (one fsync:
+    /// group commit). Returns the index of the first one.
+    pub fn propose_batch(&mut self, ops: Vec<(ClientId, u64, Op)>) -> Result<Index, ProposeError> {
         if self.role != Role::Leader {
             return Err(ProposeError::NotLeader { leader: self.leader });
         }
-        let index = self.last_index() + 1;
-        let e = Entry {
-            term: self.term,
-            index,
-            command: Command::Client { client, seq, op },
-        };
-        self.append_entries_local(vec![e]);
+        let first = self.last_index() + 1;
+        let term = self.term;
+        let entries = ops
+            .into_iter()
+            .enumerate()
+            .map(|(i, (client, seq, op))| Entry {
+                term,
+                index: first + i as Index,
+                command: Command::Client { client, seq, op },
+            })
+            .collect();
+        self.append_entries_local(entries);
         self.maybe_commit(); // single-node cluster
-        self.broadcast_append();
-        Ok(index)
+        let idle: Vec<_> = self.peers().filter(|p| !self.inflight.contains(p)).collect();
+        for p in idle {
+            self.send_append(p);
+        }
+        Ok(first)
     }
 
     /// Handles a message from a peer.
@@ -560,6 +580,7 @@ impl<S: Storage> Node<S> {
 
     fn handle_append_response(&mut self, peer: NodeId, success: bool, index: Index) {
         self.recent_active.insert(peer);
+        self.inflight.remove(&peer);
         if success {
             let m = self.match_index.get_mut(&peer).expect("known peer");
             if index > *m {
