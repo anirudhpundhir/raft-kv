@@ -11,6 +11,7 @@
 //! - [`server`]: a TCP transport + client protocol for real deployments.
 
 pub mod kv;
+pub mod linearizability;
 pub mod raft;
 pub mod rng;
 pub mod storage;
