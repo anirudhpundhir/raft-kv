@@ -12,4 +12,5 @@
 
 pub mod kv;
 pub mod rng;
+pub mod storage;
 pub mod types;
