@@ -14,6 +14,7 @@ pub mod kv;
 pub mod linearizability;
 pub mod raft;
 pub mod rng;
+pub mod server;
 pub mod sim;
 pub mod storage;
 pub mod types;
