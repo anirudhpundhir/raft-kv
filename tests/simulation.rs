@@ -14,7 +14,11 @@ fn seeds(default: std::ops::Range<u64>) -> Vec<u64> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(default.end - default.start);
-    (default.start..default.start + n).collect()
+    let offset: u64 = std::env::var("RAFT_SIM_SEED_OFFSET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    (default.start + offset..default.start + offset + n).collect()
 }
 
 /// Heals the cluster, waits for all clients, then checks convergence and
